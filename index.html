@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PORT 3000</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        padding: 0;
+        margin: 0;
+      }
+
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        background-color: #110e1d;
+        color: white;
+        display: grid;
+        place-content: center;
+      }
+
+      header {
+        position: absolute;
+        top: 0;
+        left: 0;
+        background-color: #0b0a14;
+        width: 100%;
+        padding: 1rem;
+        display: flex;
+      }
+
+      header h1 {
+        font-size: 1rem;
+        font-family: monospace;
+        margin-right: 3rem;
+      }
+
+      header p {
+        font-size: 1rem;
+        font-family: monospace;
+      }
+
+      article {
+        padding: 2rem;
+        color: black;
+        width: 45rem;
+        height: 80vh;
+        overflow: auto;
+        line-height: 1.3;
+        font-size: 1.25rem;
+      }
+
+      article ul {
+        list-style: none;
+        padding-top: 0.5rem;
+        margin-top: 0.5rem;
+        border-top: solid 1px #00000055;
+        column-count: 4;
+      }
+
+      .rejected {
+        background-color: rgb(255, 164, 164);
+      }
+      .accepted {
+        background-color: rgb(154, 255, 154);
+      }
+      .pending {
+        background-color: rgb(236, 232, 176);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Word list editor</h1>
+      <p id="stats"></p>
+    </header>
+
+    <main>
+      <article id="card"></article>
+    </main>
+
+    <script>
+      const html = String.raw;
+
+      const WORD_TAGS = {
+        1: "strong",
+        0: "span",
+        "-1": "del",
+      };
+
+      function mod(num, modulus) {
+        return ((num % modulus) + modulus) % modulus;
+      }
+
+      class WordList {
+        #groups = [];
+        #good = new Set();
+        #bad = new Set();
+        #session = new Set();
+        #index = 0;
+        $card;
+
+        constructor(groups, $card, $stats) {
+          this.#groups = groups;
+          this.$card = $card;
+          this.$stats = $stats;
+
+          this.#load();
+          this.#render();
+        }
+
+        get current() {
+          return this.#groups[this.#index];
+        }
+
+        #load() {
+          const good = localStorage.getItem("diceware-good");
+          const bad = localStorage.getItem("diceware-bad");
+          const index = localStorage.getItem("diceware-index");
+
+          if (good) {
+            const data = JSON.parse(good);
+
+            const lines = [[]];
+
+            for (const core of data) {
+              const last = lines.at(-1);
+              last.push(core);
+
+              if (last.length === 20) {
+                lines.push([]);
+              }
+            }
+
+            for (const line of lines) {
+              console.log(line.join(" "));
+            }
+
+            console.log("-".repeat(4 * 6 + 5));
+
+            const rand = (max) => Math.floor(Math.random() * max);
+
+            for (let i = 0; i < 10; i++) {
+              const passphrase = Array.from(
+                { length: 4 },
+                () => data[rand(data.length)]
+              );
+
+              console.log(passphrase.join(" "));
+            }
+
+            this.#good = new Set(data);
+          }
+
+          if (bad) {
+            this.#bad = new Set(JSON.parse(bad));
+          }
+
+          if (index) {
+            this.#index = Number(index);
+          }
+        }
+
+        #save() {
+          localStorage.setItem(
+            "diceware-good",
+            JSON.stringify([...this.#good])
+          );
+
+          localStorage.setItem("diceware-bad", JSON.stringify([...this.#bad]));
+          localStorage.setItem("diceware-index", String(this.#index));
+        }
+
+        #render() {
+          const { core, words } = this.current;
+          const status = this.#good.has(core)
+            ? 1
+            : this.#bad.has(core)
+            ? -1
+            : 0;
+
+          const statusReadable = {
+            1: "accepted",
+            0: "pending",
+            "-1": "rejected",
+          }[status];
+
+          const list = words
+            .map((word) => {
+              const status = 0;
+              const tag = WORD_TAGS[status];
+
+              return html`<li class="word"><${tag}>${word}</${tag}></li>`;
+            })
+            .join("\n");
+
+          this.$card.className = statusReadable;
+          this.$card.innerHTML = html`
+            <h2>${core}</h2>
+            <ul>
+              ${list}
+            </ul>
+          `;
+
+          const goodSize = this.#good.size;
+          const badSize = this.#bad.size;
+          const pendingSize = this.#groups.length - goodSize - badSize;
+
+          const required = 7776;
+
+          const done = new Intl.NumberFormat("en-US", {
+            style: "percent",
+          }).format(goodSize / required);
+
+          this.$stats.innerHTML = html`
+            Accepted: <strong>${goodSize}</strong> / ${required} (${done}) |
+            Pending: <strong>${pendingSize}</strong> | Rejected:
+            <strong>${badSize}</strong> | Current index: ${this.#index}
+          `;
+
+          this.#save();
+        }
+
+        offsetBy(num) {
+          this.#index = mod(this.#index + num, this.#groups.length);
+          this.#render();
+        }
+
+        next() {
+          this.offsetBy(1);
+        }
+
+        prev() {
+          this.offsetBy(-1);
+        }
+
+        random() {
+          while (true) {
+            const index = Math.floor(Math.random() * this.#groups.length);
+            const core = this.#groups[index].core;
+
+            if (
+              !this.#good.has(core) &&
+              !this.#bad.has(core) &&
+              !this.#session.has(core)
+            ) {
+              this.#index = index;
+              this.#render();
+              this.#session.add(this.current.core);
+              return;
+            }
+          }
+        }
+
+        moveUp() {
+          if (this.#bad.has(this.current.core)) {
+            this.#bad.delete(this.current.core);
+          } else if (!this.#good.has(this.current.core)) {
+            this.#good.add(this.current.core);
+          }
+
+          this.#render();
+        }
+
+        moveDown() {
+          if (this.#good.has(this.current.core)) {
+            this.#good.delete(this.current.core);
+          } else if (!this.#bad.has(this.current.core)) {
+            this.#bad.add(this.current.core);
+          }
+
+          this.#render();
+        }
+      }
+
+      async function main() {
+        const $card = document.getElementById("card");
+        const $stats = document.getElementById("stats");
+
+        const res = await fetch("wiktionary/sjp-groups-of-4.json");
+        const groups = await res.json();
+
+        const wordList = new WordList(groups, $card, $stats);
+
+        document.addEventListener("keydown", (e) => {
+          switch (e.key) {
+            case "ArrowRight":
+              wordList.next();
+              break;
+            case "ArrowLeft":
+              wordList.prev();
+              break;
+            case "ArrowUp":
+              wordList.moveUp();
+              break;
+            case "ArrowDown":
+              wordList.moveDown();
+              break;
+            case " ":
+              wordList.random();
+              break;
+          }
+        });
+      }
+
+      main();
+    </script>
+  </body>
+</html>

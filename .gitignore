@@ -1,0 +1,4 @@
+data/*
+wiktionary
+!data/cores.pl.txt
+!data/popular-wiki-manual.pl.txt
